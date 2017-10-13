@@ -102,10 +102,76 @@ void fframes_delete(int frame){
 
 
 
-int get_vpage(char mode){ // mode='f', mode='r', mode... etc (fifo,random,etc)
+int get_vpage(char mode,int mp_len){ // mode='f', mode='r', mode... etc (fifo,random,etc)
 	
 	if(mode=='f'){
 		return mapped_pages[0];	
+	}
+	//int npages=disk_nblocks(disk);
+	else if(mode=='c'){
+		int* mayores;  //arreglo con la(s) pagina(s) que han generado el numero mayor de faltas
+		int counter=0;
+		int mcounter=0;
+		int mayor=0;
+		for(int i=0;i<mp_len;i++){
+		
+			int faults=faults_per_page[mapped_pages[i]];
+			if(faults==mayor){
+				if(counter==0){
+					mayores=malloc(sizeof(int));
+				
+				}
+				else{
+				
+					mayores=realloc(mayores,(sizeof(int))*(counter+1));
+				}
+				
+				mayores[counter]=mapped_pages[i];
+				counter+=1;
+				
+			
+				
+			}
+			else if(faults>mayor){ //reseteamos valores
+				
+				mayor=faults;
+				if(counter==0){
+					mayores=malloc(sizeof(int));
+				
+				}
+				else{	
+					mayores=realloc(mayores,sizeof(int));
+				
+				
+				}
+				mayores[0]=mapped_pages[i];
+				counter=1;
+				
+				
+			
+			
+			}
+		
+		
+		}
+		
+		if(counter>1){
+		
+			
+			srand(time(NULL));
+			int rnd=rand() % (counter-1);
+			return mayores[rnd];	
+		
+			
+		}
+		else{
+			
+			return mayores[0];	
+			
+		
+		}
+		
+	
 	}
 	//rellenar con los else if correspondientes segun algoritmo de reemplazo usado
 
@@ -134,7 +200,7 @@ void fifo_pfh( struct page_table *pt, int page )
 	else{
 	
 		//solicitamos pagina que sera sacada de memoria...
-		int vpage=get_vpage('f');  // modo fifo
+		int vpage=get_vpage('f',mp_len);  // modo fifo
 		
 		//conseguimos el frame al cual esta mapeada..
 		
@@ -184,6 +250,81 @@ void fifo_pfh( struct page_table *pt, int page )
 	return;
 }
 
+void custom_pfh( struct page_table *pt, int page )
+{	
+
+	int nframes=page_table_get_nframes(pt);
+	int mp_len=nframes-fframes_len;
+	printf("mapped pages:%d\n",mp_len);
+	printf("fframes_len:%d\n",fframes_len);
+	printf("page fault on page #%d\n",page);
+	faults+=1;
+	int vframe; //marco victima
+	int bits;
+	//nos fijamos si existe algun marco libre para asignar, claramente la pagina no esta en memoria
+	if(fframes_len>0){   //si esque existe algun marco vacio
+		vframe=fframes[0];
+		char* frame_mem=(page_table_get_physmem(pt))+(PAGE_SIZE*vframe);
+		disk_read(disk,page,frame_mem);
+		page_table_set_entry(pt,page,vframe,PROT_WRITE);
+		fframes_delete(vframe);
+		mapped_pages_append(mp_len,page);
+		fframes_len-=1;
+	}
+	else{
+	
+		//solicitamos pagina que sera sacada de memoria...
+		int vpage=get_vpage('c',mp_len);  // modo custom
+		
+		//conseguimos el frame al cual esta mapeada..
+		
+		page_table_get_entry(pt,vpage,&vframe,&bits);
+		
+		//generamos la direccion fisica del frame para guardarla en disco...
+		char* vframe_mem=(page_table_get_physmem(pt))+PAGE_SIZE*vframe;
+		
+		//escribimos efectivamente el frame completo (o la pagina victima) al disco
+		
+		disk_write(disk,vpage,vframe_mem);
+		
+		//leemos desde el disco el bloque de la nueva pagina para cargarla al marco victima 'vframe'..
+		
+		disk_read(disk,page,vframe_mem);
+		
+		//actualizamos la entrada de la pagina que pasa al disco
+		
+		page_table_set_entry(pt,vpage,0,0);
+		
+		//actualizamos la entrada de la pagina que paso del disco a memoria
+		
+		page_table_set_entry(pt,page,vframe,PROT_WRITE);
+		
+		//eliminamos de 'mapped_frames' la pagina que paso al disco
+		
+		mapped_pages_delete(mp_len,vpage);
+		mp_len-=1;
+		
+		//agregamos a 'mapped_frames' la pagina que pasa a memoria
+		mapped_pages_append(mp_len,page);
+		mp_len+=1;
+		
+		faults_per_page[vpage]=0;
+		//no modificamos 'fframes' porque en realidad el marco se desocupo pero al mismo tiempo fue usado por la nueva pagina
+	
+	}
+	
+		
+	faults_per_page[page]+=1;
+
+	//primero ver si el fault es porque la pagina no esta en memoria
+	
+	
+	
+	
+	//exit(1);
+	return;
+}
+
 int main( int argc, char *argv[] )
 {	
 
@@ -200,10 +341,11 @@ int main( int argc, char *argv[] )
 	int npages = atoi(argv[1]);
 	int nframes = atoi(argv[2]);
 	char* alg=argv[3];
-	
+	struct page_table *pt;
 	
 	if(!strcmp(alg,"fifo")){
 		printf("algoritmo fifo\n");
+		pt = page_table_create( npages, nframes, fifo_pfh);
 	
 	}
 	
@@ -217,6 +359,10 @@ int main( int argc, char *argv[] )
 			faults_per_page[i]=0;
 		
 		}
+		
+		pt = page_table_create( npages, nframes, custom_pfh);
+			
+		
 		
 	}
 	
@@ -242,7 +388,6 @@ int main( int argc, char *argv[] )
 		return 1;
 	}
 
-	struct page_table *pt = page_table_create( npages, nframes, fifo_pfh);
 	if(!pt) {
 		fprintf(stderr,"couldn't create page table: %s\n",strerror(errno));
 		return 1;
@@ -284,8 +429,6 @@ int main( int argc, char *argv[] )
 	
 	
 	
-	
-
 	
 	
 	

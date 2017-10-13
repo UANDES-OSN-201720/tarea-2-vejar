@@ -59,7 +59,7 @@ void sort_program( char *data, int length )
 	for(i=0;i<length;i++) {
 		data[i] = rand();
 	}
-
+	
 	qsort(data,length,1,compare_bytes);
 
 	for(i=0;i<length;i++) {
