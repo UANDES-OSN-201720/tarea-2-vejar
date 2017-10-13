@@ -21,29 +21,19 @@ int* fframes; // arreglo de marcos libres
 int* faults_per_page;
 int* mapped_pages; //paginas en memoria actualmente 
 int fframes_len; // total de marcos libres, las paginas cargadas en memoria seran nframes-fframes_len
-/*void replace_page(struct page_table * pt,int old, int new){ // busca pagina victima y la reemplaza
 
-	
-	int vict=mapped_pages[0];
-	//buscamos el marco usado por la pagina victima
- 	int vframe;
- 	int bits;
-	page_table_get_entry(pt,vict,&frame,&bits);
-	
-	
-}*/
 void print_narray(int* array,int len);
 
 void mapped_pages_append(int mp_len, int page){ //  se agregan como si fuese una cola fifo, 
 								//eso nos sirve para cualquier modo, en eliminar cambia la logica
 								//mapped_pages_len=nframes-fframes_len
 								
-	if(mapped_pages==NULL){
-		mapped_pages=malloc(sizeof(int)*mp_len+1);
+	if(mp_len==0){
+		mapped_pages=malloc(sizeof(int)*(mp_len+1));
 	
 	}			
 	else{	
-		mapped_pages=realloc(mapped_pages,sizeof(int)*mp_len+1);
+		mapped_pages=realloc(mapped_pages,sizeof(int)*(mp_len+1));
 		
 		
 		}
@@ -122,9 +112,13 @@ int get_vpage(char mode){ // mode='f', mode='r', mode... etc (fifo,random,etc)
 }
 void fifo_pfh( struct page_table *pt, int page )
 {	
+
+	int nframes=page_table_get_nframes(pt);
+	int mp_len=nframes-fframes_len;
+	printf("mapped pages:%d\n",mp_len);
+	printf("fframes_len:%d\n",fframes_len);
 	printf("page fault on page #%d\n",page);
 	faults+=1;
-	int nframes=page_table_get_nframes(pt);
 	int vframe; //marco victima
 	int bits;
 	//nos fijamos si existe algun marco libre para asignar, claramente la pagina no esta en memoria
@@ -134,7 +128,7 @@ void fifo_pfh( struct page_table *pt, int page )
 		disk_read(disk,page,frame_mem);
 		page_table_set_entry(pt,page,vframe,PROT_WRITE);
 		fframes_delete(vframe);
-		mapped_pages_append(nframes-fframes_len,page);
+		mapped_pages_append(mp_len,page);
 		fframes_len-=1;
 	}
 	else{
@@ -166,7 +160,7 @@ void fifo_pfh( struct page_table *pt, int page )
 		page_table_set_entry(pt,page,vframe,PROT_WRITE);
 		
 		//eliminamos de 'mapped_frames' la pagina que paso al disco
-		int mp_len=nframes-fframes_len;
+		
 		mapped_pages_delete(mp_len,vpage);
 		mp_len-=1;
 		
@@ -180,7 +174,7 @@ void fifo_pfh( struct page_table *pt, int page )
 	}
 	
 		
-	//faults_per_page[page]+=1;
+	//	faults_per_page[page]+=1;
 	//primero ver si el fault es porque la pagina no esta en memoria
 	
 	
@@ -218,7 +212,7 @@ int main( int argc, char *argv[] )
 		printf("algoritmo custom\n");
 		
 		//inicializamos nuestro arreglo con ceros
-		faults_per_page=(int*)malloc(sizeof(int)*npages);
+		faults_per_page=malloc(sizeof(int)*npages);
 		for(int i=0;i<npages;i++){
 			faults_per_page[i]=0;
 		
